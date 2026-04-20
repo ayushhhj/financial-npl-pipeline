@@ -1,0 +1,31 @@
+# ingestion
+requests
+beautifulsoup4
+lxml
+
+# nlp
+spacy
+transformers
+datasets
+sentence-transformers
+bertopic
+faiss-cpu
+torch
+
+# graph
+neo4j
+rapidfuzz
+
+# api
+fastapi
+uvicorn
+
+# utils
+python-dotenv
+pydantic
+
+# dev
+pytest
+pytest-cov
+black
+ruff
