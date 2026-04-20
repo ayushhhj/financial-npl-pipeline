@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 from src.ingestion.edgar import (
     chunk_text,
+    clean_text,
     validate_filing,
     get_filings,
     save_filing,
@@ -74,3 +75,15 @@ def test_get_filings_returns_correct_form(mock_get):
     results = get_filings("0000320193", form_type="8-K", limit=5)
     assert len(results) == 2
     assert all(r["form"] == "8-K" for r in results)
+
+
+def test_clean_text_removes_base64():
+    noisy = "Normal text here. " + "A" * 150 + "== more text"
+    cleaned = clean_text(noisy)
+    assert "A" * 150 not in cleaned
+    assert "Normal text" in cleaned
+
+def test_clean_text_removes_short_lines():
+    text = "Good sentence with real content here.\n{color: red;}\nAnother good sentence."
+    cleaned = clean_text(text)
+    assert "Good sentence" in cleaned

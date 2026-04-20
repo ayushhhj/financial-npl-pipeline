@@ -2,6 +2,7 @@ import os
 import json
 import time
 import requests
+import re
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from pathlib import Path
@@ -47,6 +48,31 @@ def get_filings(cik: str, form_type: str = "8-K", limit: int = 5) -> list[dict]:
 
     return results
 
+def clean_text(text: str) -> str:
+    # remove base64 encoded binary blobs
+    text = re.sub(r'[A-Za-z0-9+/]{100,}={0,2}', '', text)
+    # remove XBRL taxonomy references
+    text = re.sub(r'http[s]?://\S+', '', text)
+    # remove XML/XBRL tags and attributes
+    text = re.sub(r'<[^>]+>', ' ', text)
+    # remove CSS blocks
+    text = re.sub(r'\{[^}]{0,500}\}', ' ', text)
+    # remove lines that are mostly non-alphabetic (XBRL noise)
+    lines = text.split('\n')
+    clean_lines = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        alpha_ratio = sum(c.isalpha() for c in line) / max(len(line), 1)
+        if alpha_ratio > 0.4 and len(line) > 20:
+            clean_lines.append(line)
+    text = ' '.join(clean_lines)
+    # collapse whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
 
 def fetch_filing_text(cik: str, accession: str) -> str | None:
     from bs4 import XMLParsedAsHTMLWarning
@@ -88,6 +114,7 @@ def fetch_filing_text(cik: str, accession: str) -> str | None:
 
     soup = BeautifulSoup(doc_response.content, "lxml")
     text = soup.get_text(separator=" ", strip=True)
+    text = clean_text(text)
     return text if text.strip() else None
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
