@@ -161,7 +161,7 @@ def save_filing(ticker: str, accession: str, date: str, chunks: list[str]) -> Pa
     return filepath
 
 
-def run_ingestion(form_type: str = "8-K", limit: int = 5) -> dict:
+def run_ingestion(form_type: str = "10-K", limit: int = 5) -> dict:
     results = {"success": [], "failed": [], "skipped": []}
 
     for ticker, cik in COMPANIES.items():
