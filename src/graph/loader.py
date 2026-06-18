@@ -38,7 +38,9 @@ def normalize_location(name: str) -> str:
             return normalized
     return name.strip()
 
-
+def normalize_person(name: str) -> str:
+    return " ".join(word.capitalize() for word in name.strip().split())
+    
 def clear_graph(session):
     session.run("MATCH (n) DETACH DELETE n")
     print("Graph cleared")
