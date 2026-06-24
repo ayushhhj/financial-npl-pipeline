@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from neo4j import GraphDatabase
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
+from typing import Optional
 
 load_dotenv()
 
@@ -96,20 +97,22 @@ def get_entities(ticker: str):
         if not company:
             raise HTTPException(status_code=404, detail=f"Company {ticker} not found")
 
-        persons = session.run(
+        locations = session.run(
             """
-            MATCH (p:Person)-[r:ASSOCIATED_WITH]->(c:Company {id: $ticker})
-            RETURN p.name as name, r.count as count
-            ORDER BY r.count DESC LIMIT 20
+            MATCH (c:Company {id: $ticker})-[:FILED]->(f:Filing)-[r:MENTIONS_LOCATION]->(l:Location)
+            WITH l.name as name, sum(r.count) as count,
+                collect(r.dominant_category)[0] as category
+            RETURN name, count, category
+            ORDER BY count DESC LIMIT 20
             """,
             ticker=ticker,
         ).data()
 
-        locations = session.run(
+        persons = session.run(
             """
-            MATCH (c:Company {id: $ticker})-[:FILED]->(f:Filing)-[r:MENTIONS_LOCATION]->(l:Location)
-            RETURN l.name as name, sum(r.count) as count
-            ORDER BY count DESC LIMIT 20
+            MATCH (p:Person)-[r:ASSOCIATED_WITH]->(c:Company {id: $ticker})
+            RETURN p.name as name, r.count as count, r.dominant_role as role
+            ORDER BY r.count DESC LIMIT 20
             """,
             ticker=ticker,
         ).data()
@@ -130,6 +133,31 @@ def get_entities(ticker: str):
         "filings": filings,
     }
 
+@app.get("/analysis/location-purpose")
+def location_purpose(location: str, category: Optional[str] = None):
+    with driver.session() as session:
+        if category:
+            result = session.run(
+                """
+                MATCH (c:Company)-[:FILED]->(f:Filing)-[r:MENTIONS_LOCATION]->(l:Location {name: $location})
+                WHERE r.dominant_category = $category
+                RETURN c.ticker, r.count, r.dominant_category
+                ORDER BY r.count DESC
+                """,
+                location=location,
+                category=category,
+            ).data()
+        else:
+            result = session.run(
+                """
+                MATCH (c:Company)-[:FILED]->(f:Filing)-[r:MENTIONS_LOCATION]->(l:Location {name: $location})
+                RETURN c.ticker, r.count, r.dominant_category
+                ORDER BY r.count DESC
+                """,
+                location=location,
+            ).data()
+    return {"location": location, "results": result}
+    
 
 @app.get("/graph/{ticker}/related")
 def get_related_companies(ticker: str):

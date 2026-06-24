@@ -2,6 +2,7 @@ import json
 import spacy
 from pathlib import Path
 from collections import defaultdict
+from src.nlp.classify import classify_entities_batch, LABEL_CONFIGS
 
 nlp = spacy.load("en_core_web_trf")
 
@@ -12,11 +13,15 @@ def extract_entities(text: str) -> list[dict]:
     entities = []
     for ent in doc.ents:
         if ent.label_ in FINANCIAL_LABELS:
+            context_start = max(0, ent.start_char - 150)
+            context_end = min(len(text), ent.end_char + 150)
+            context = text[context_start:context_end]
             entities.append({
                 "text": ent.text.strip(),
                 "label": ent.label_,
                 "start": ent.start_char,
                 "end": ent.end_char,
+                "context": context,
             })
     return entities
 
@@ -29,9 +34,29 @@ def process_filing(filepath: Path) -> dict:
         entities = extract_entities(chunk)
         all_entities.extend(entities)
 
+    # classify all entity types that have context
+    classifiable_types = list(LABEL_CONFIGS.keys())
+    for label_type in classifiable_types:
+        typed_entities = [
+            ent for ent in all_entities
+            if ent["label"] == label_type and ent.get("context")
+        ]
+        if typed_entities:
+            print(f"  Classifying {len(typed_entities)} {label_type} entities...")
+            categories = classify_entities_batch(typed_entities, label_type)
+            for ent, category in zip(typed_entities, categories):
+                ent["category"] = category
+
+    # aggregate counts
     entity_counts = defaultdict(lambda: defaultdict(int))
     for ent in all_entities:
         entity_counts[ent["label"]][ent["text"]] += 1
+
+    # aggregate categories per entity type and text
+    entity_categories = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+    for ent in all_entities:
+        if ent.get("category"):
+            entity_categories[ent["label"]][ent["text"]][ent["category"]] += 1
 
     return {
         "ticker": data["ticker"],
@@ -40,6 +65,17 @@ def process_filing(filepath: Path) -> dict:
         "entity_counts": {
             label: dict(sorted(texts.items(), key=lambda x: x[1], reverse=True)[:20])
             for label, texts in entity_counts.items()
+        },
+        "entity_categories": {
+            label: {
+                text: dict(cats)
+                for text, cats in sorted(
+                    texts.items(),
+                    key=lambda x: sum(x[1].values()),
+                    reverse=True,
+                )[:20]
+            }
+            for label, texts in entity_categories.items()
         },
         "total_entities": len(all_entities),
     }

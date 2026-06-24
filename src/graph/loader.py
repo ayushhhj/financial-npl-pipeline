@@ -33,14 +33,13 @@ LOCATION_NORMALIZATIONS = {
 
 def normalize_location(name: str) -> str:
     name_clean = name.strip().lower()
-    for normalized, original in LOCATION_NORMALIZATIONS.items():
-        if fuzz.ratio(name_clean, original.lower()) > 88:
-            return normalized
+    if name_clean in LOCATION_NORMALIZATIONS:
+        return LOCATION_NORMALIZATIONS[name_clean]
     return name.strip()
 
 def normalize_person(name: str) -> str:
     return " ".join(word.capitalize() for word in name.strip().split())
-    
+
 def clear_graph(session):
     session.run("MATCH (n) DETACH DELETE n")
     print("Graph cleared")
@@ -116,11 +115,9 @@ def load_filing(session, ner_path: Path):
     accession = data["accession"]
     date = data["date"]
     entity_counts = data.get("entity_counts", {})
-    for location, count in entity_counts.get("GPE", {}).items():
-        location = normalize_location(location)
-        if len(location) < 2:
-            continue
+    entity_categories = data.get("entity_categories", {})
 
+    # create filing node and link to company
     session.run(
         """
         MERGE (f:Filing {accession: $accession})
@@ -134,10 +131,13 @@ def load_filing(session, ner_path: Path):
         ticker=ticker,
     )
 
+    # load persons with count and dominant role
     for person, count in entity_counts.get("PERSON", {}).items():
-        person = person.strip()
+        person = normalize_person(person)
         if len(person) < 4 or len(person.split()) < 2:
             continue
+        cats = entity_categories.get("PERSON", {}).get(person, {})
+        dominant_role = max(cats, key=cats.get) if cats else "unknown"
         session.run(
             """
             MERGE (p:Person {name: $name})
@@ -148,49 +148,60 @@ def load_filing(session, ner_path: Path):
             WITH p
             MATCH (c:Company {id: $ticker})
             MERGE (p)-[r2:ASSOCIATED_WITH]->(c)
-            ON CREATE SET r2.count = $count
-            ON MATCH SET r2.count = r2.count + $count
+            ON CREATE SET r2.count = $count, r2.dominant_role = $role
+            ON MATCH SET r2.count = r2.count + $count, r2.dominant_role = $role
             """,
             name=person,
             accession=accession,
             ticker=ticker,
             count=count,
+            role=dominant_role,
         )
 
+    # load org co-mentions with relationship type
     for org, count in entity_counts.get("ORG", {}).items():
         resolved = resolve_company(org)
         if resolved and resolved != ticker:
+            cats = entity_categories.get("ORG", {}).get(org, {})
+            dominant_rel = max(cats, key=cats.get) if cats else "unknown"
             session.run(
                 """
                 MATCH (c1:Company {id: $ticker})
                 MATCH (c2:Company {id: $resolved})
-                MATCH (f:Filing {accession: $accession})
                 MERGE (c1)-[r:CO_MENTIONED_WITH]->(c2)
-                ON CREATE SET r.count = $count, r.filing = $accession
-                ON MATCH SET r.count = r.count + $count
+                ON CREATE SET r.count = $count, r.relationship_type = $rel_type
+                ON MATCH SET r.count = r.count + $count, r.relationship_type = $rel_type
                 """,
                 ticker=ticker,
                 resolved=resolved,
-                accession=accession,
                 count=count,
+                rel_type=dominant_rel,
             )
 
+    # load locations with category
     for location, count in entity_counts.get("GPE", {}).items():
-        location = location.strip()
+        raw_location = location.strip()
+        cats = entity_categories.get("GPE", {}).get(raw_location, {})
+        location = normalize_location(raw_location)
         if len(location) < 2:
             continue
-        session.run(
-            """
-            MERGE (l:Location {name: $name})
-            WITH l
-            MATCH (f:Filing {accession: $accession})
-            MERGE (f)-[r:MENTIONS_LOCATION]->(l)
-            SET r.count = $count
-            """,
-            name=location,
-            accession=accession,
-            count=count,
-        )
+    dominant_category = max(cats, key=cats.get) if cats else "general"
+    session.run(
+        """
+        MERGE (l:Location {name: $name})
+        WITH l
+        MATCH (f:Filing {accession: $accession})
+        MERGE (f)-[r:MENTIONS_LOCATION]->(l)
+        SET r.count = $count,
+            r.dominant_category = $category,
+            r.category_counts = $cats
+        """,
+        name=location,
+        accession=accession,
+        count=count,
+        category=dominant_category,
+        cats=json.dumps(cats),
+    )
 
 
 def run_graph_loading():
