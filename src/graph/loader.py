@@ -185,23 +185,23 @@ def load_filing(session, ner_path: Path):
         location = normalize_location(raw_location)
         if len(location) < 2:
             continue
-    dominant_category = max(cats, key=cats.get) if cats else "general"
-    session.run(
-        """
-        MERGE (l:Location {name: $name})
-        WITH l
-        MATCH (f:Filing {accession: $accession})
-        MERGE (f)-[r:MENTIONS_LOCATION]->(l)
-        SET r.count = $count,
-            r.dominant_category = $category,
-            r.category_counts = $cats
-        """,
-        name=location,
-        accession=accession,
-        count=count,
-        category=dominant_category,
-        cats=json.dumps(cats),
-    )
+        dominant_category = max(cats, key=cats.get) if cats else "general"
+        session.run(
+            """
+            MERGE (l:Location {name: $name})
+            WITH l
+            MATCH (f:Filing {accession: $accession})
+            MERGE (f)-[r:MENTIONS_LOCATION]->(l)
+            SET r.count = $count,
+                r.dominant_category = $category,
+                r.category_counts = $cats
+            """,
+            name=location,
+            accession=accession,
+            count=count,
+            category=dominant_category,
+            cats=json.dumps(cats),
+        )
 
 
 def run_graph_loading():
