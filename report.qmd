@@ -1,0 +1,150 @@
+---
+title: "Financial NLP Pipeline — Analysis Report"
+author: "Ayush Joshi"
+date: June 24, 2026
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    theme: cosmo
+---
+
+## Overview
+
+This report documents findings from an end-to-end NLP pipeline built to analyze SEC 10-K annual filings from 10 major public companies spanning 2021–2026. The system extracts named entities, classifies their context, and builds a knowledge graph to surface analytical insights from dense legal text.
+
+**Companies analyzed:** AAPL, MSFT, GOOGL, AMZN, TSLA, JPM, BAC, GS, NVDA, META
+
+**Total filings processed:** 34
+
+**Total chunks indexed:** 18,642
+
+---
+
+## Pipeline Architecture
+
+The pipeline runs in five stages:
+
+1. **Ingestion** — 10-K filings fetched from SEC EDGAR API, cleaned of XBRL noise, chunked into 500-word segments
+2. **NER** — spaCy extracts entities (ORG, PERSON, GPE, MONEY, PRODUCT) with surrounding context
+3. **Classification** — BART zero-shot classifier categorizes each entity mention by purpose
+4. **Embeddings** — sentence-transformers embeds all chunks; FAISS indexes for semantic search
+5. **Graph loading** — Neo4j stores entities as nodes with typed relationship edges
+
+---
+
+## Semantic Search Results
+
+The FAISS semantic search correctly identifies relevant filing chunks across companies without exact keyword matching.
+
+### Supply Chain Risk
+
+Query: *"single source supplier concentration risk disruption"*
+
+Top results are dominated by Apple filings across multiple years — Apple's 10-K has a dedicated section on single-source component dependency that surfaces consistently:
+
+> *"The Company's new products often utilize custom components available from only one source. When a component or product uses new technologies, initial capacity constraints may exist..."* — AAPL 2024
+
+### AI Risk and Investment
+
+Query: *"artificial intelligence risk uncertainty investment opportunity"*
+
+META dominates — reflecting their disclosed $13.8B investment in Scale AI and extensive AI risk language. MSFT and GOOGL also surface appropriately.
+
+### Climate Risk
+
+Query: *"climate change environmental risk carbon emissions sustainability"*
+
+JPMorgan and Goldman Sachs lead — financial regulators specifically require climate risk disclosure in a structured framework (physical risk, transition risk) that produces richer climate language than tech companies.
+
+---
+
+## Entity Classification Results
+
+### Geographic Exposure
+
+The zero-shot classifier distinguishes why companies mention locations — a significant upgrade over raw mention counts.
+
+**Apple's China exposure:**
+
+| Category | Mentions |
+|---|---|
+| Market | 29 |
+| Supplier | 13 |
+| Regulatory | 2 |
+
+Apple talks about China more as a revenue market than a manufacturing location — counterintuitive given the manufacturing narrative, but accurate given how their 10-K structures risk language.
+
+**Key geographic findings:**
+
+- **Ireland** → almost exclusively regulatory across all companies (tax domicile, EU regulatory jurisdiction)
+- **Taiwan** → geopolitical risk and supplier (semiconductor supply chain)
+- **Israel** → supplier only, exclusively NVIDIA (Mellanox acquisition)
+- **India** → mixed market and facility (growing R&D and market presence)
+
+### Executive Classification
+
+The PERSON classifier distinguishes between:
+
+- **executive** — normal role mentions ("Timothy D. Cook has served as CEO since 2011")
+- **key_person_risk** — dependency risk language ("our business depends heavily on...")
+- **board_member** — governance mentions
+- **legal_party** — regulatory and legal proceedings
+
+---
+
+## Knowledge Graph
+
+The Neo4j graph contains:
+
+| Node type | Count |
+|---|---|
+| Company | 10 |
+| Person | 184 |
+| Location | 106 |
+| Filing | 34 |
+
+### Notable Relationships
+
+**TSLA → JPM (59 co-mentions)** — Tesla's filings frequently mention JPMorgan in the context of financing arrangements, underwriting, and financial instrument disclosures.
+
+**NVDA → MSFT (11 co-mentions)** — NVIDIA mentions Microsoft in the context of cloud computing partnerships and AI infrastructure.
+
+---
+
+## Topic Modeling
+
+BERTopic identified key themes across all filings including:
+
+- Electric vehicle competition and battery technology (Tesla-dominated)
+- Accounting standards updates (cross-company)
+- Tax position and deferred tax assets (cross-company)
+- XBRL taxonomy definitions (noise — to be filtered in future work)
+
+---
+
+## Limitations and Future Work
+
+**Current limitations:**
+
+- Zero-shot classification accuracy degrades on ambiguous financial language
+- Location entity deduplication merges common variants but misses edge cases
+- Co-mention graph is sparse — companies rarely name competitors directly in 10-Ks
+- Dataset of 10 companies is illustrative, not comprehensive
+
+**Planned enhancements:**
+
+- Fine-tune a domain-specific NER model on financial text (FinBERT-NER)
+- Add LLM-based classification using the Anthropic API for higher accuracy on ambiguous cases
+- Expand to S&P 500 with distributed processing
+- Add temporal analysis — track how a company's risk language changes year over year
+- Build a Streamlit dashboard for interactive exploration
+
+---
+
+## Conclusion
+
+The pipeline demonstrates that meaningful analytical signals can be extracted automatically from dense 10-K legal text. The combination of NER, zero-shot classification, semantic search, and graph traversal produces insights — such as distinguishing China's role as market vs supplier, or identifying which companies have the richest climate risk disclosure — that would otherwise require manual analyst review of thousands of pages of filings.
+
+The architecture mirrors the kind of data preparation pipeline that quantitative research teams use to generate alternative data signals from unstructured text sources.
